@@ -50,7 +50,7 @@
 
         <!-- Focus Shifting -->
         <key type="as" name="focus-left">
-            <default><![CDATA[['<Super>Left','<Super>h']]]></default>
+            <default><![CDATA[['<Super>h']]]></default>
             <summary>Focus left window</summary>
         </key>
 
@@ -65,24 +65,24 @@
         </key>
 
         <key type="as" name="focus-right">
-            <default><![CDATA[['<Super>Right','<Super>l']]]></default>
+            <default><![CDATA[['<Super>l']]]></default>
             <summary>Focus right window</summary>
         </key>
 
         <!-- Launcher -->
         <key type="as" name="activate-launcher">
-            <default><![CDATA[['<Super>slash']]]></default>
+            <default><![CDATA[['<Super>space']]]></default>
             <summary>Search key combo</summary>
         </key>
 
         <!-- Window Management Keys -->
         <key type="as" name="toggle-stacking">
-            <default><![CDATA[['s']]]></default>
+            <default><![CDATA[['t']]]></default>
             <summary>Toggle stacking mode inside management mode</summary>
         </key>
 
         <key type="as" name="toggle-stacking-global">
-            <default><![CDATA[['<Super>s']]]></default>
+            <default><![CDATA[['<Super>t']]]></default>
             <summary>Toggle stacking mode outside management mode</summary>
         </key>
 
@@ -92,7 +92,7 @@
         </key>
 
         <key type="as" name="tile-enter">
-            <default><![CDATA[['<Super>Return']]]></default>
+            <default><![CDATA[['<Shift><Super>Return']]]></default>
             <summary>Enter tiling mode</summary>
         </key>
 

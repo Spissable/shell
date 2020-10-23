@@ -35,6 +35,7 @@ export const DEFAULT_RULES: Array<FloatRule> = [
     { class: "Slack", title: "Slack | mini panel" },
     { class: "Solaar", },
     { class: "zoom", },
+    { class: "Signal" }
 ];
 
 export interface FloatRule {

@@ -78,9 +78,9 @@ set_keybindings() {
     # Lock screen
     dconf write ${KEYS_MEDIA}/screensaver "['<Super>Escape']"
     # Home folder
-    dconf write ${KEYS_MEDIA}/home "['<Super>f']"
+    dconf write ${KEYS_MEDIA}/home "['<Super>e']"
     # Launch email client
-    dconf write ${KEYS_MEDIA}/email "['<Super>e']"
+    # dconf write ${KEYS_MEDIA}/email "['<Super>e']"
     # Launch web browser
     dconf write ${KEYS_MEDIA}/www "['<Super>b']"
     # Rotate Video Lock
