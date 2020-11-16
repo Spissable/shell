@@ -173,8 +173,14 @@ export class AutoTiler {
         }
     }
 
+
+
     /** Tile a window onto a workspace */
     attach_to_workspace(ext: Ext, win: ShellWindow, id: [number, number]) {
+        if (ext.should_ignore_workspace(id[0])) {
+            id = [id[0], 0]
+        }
+
         const toplevel = this.forest.find_toplevel(id);
 
         if (toplevel) {
@@ -371,6 +377,17 @@ export class AutoTiler {
         if (ext.contains_tag(focused.entity, Tags.Floating)) {
             ext.delete_tag(focused.entity, Tags.Floating);
             this.auto_tile(ext, focused, false);
+        } else if (!focused.is_tilable(ext)) {
+            if (ext.contains_tag(focused.entity, Tags.ForcedTile)) {
+                ext.delete_tag(focused.entity, Tags.ForcedTile);
+                const fork_entity = this.attached.get(focused.entity);
+                if (fork_entity) {
+                    this.detach_window(ext, focused.entity);
+                }
+            } else {
+                ext.add_tag(focused.entity, Tags.ForcedTile);
+                this.auto_tile(ext, focused, false);
+            }
         } else {
             const fork_entity = this.attached.get(focused.entity);
             if (fork_entity) {
@@ -417,7 +434,7 @@ export class AutoTiler {
 
                 if (fork.left.is_window(focused.entity)) {
                     // Assign left window as stack.
-                    focused.stack = this.forest.stacks.insert(new Stack(ext, focused.entity, fork.workspace));
+                    focused.stack = this.forest.stacks.insert(new Stack(ext, focused.entity, fork.workspace, fork.monitor));
                     fork.left = node.Node.stacked(focused.entity, focused.stack);
                     fork.measure(this.forest, ext, fork.area, this.forest.on_record());
                 } else if (fork.left.is_in_stack(focused.entity)) {
@@ -431,7 +448,7 @@ export class AutoTiler {
                     };
                 } else if (fork.right?.is_window(focused.entity)) {
                     // Assign right window as stack
-                    focused.stack = this.forest.stacks.insert(new Stack(ext, focused.entity, fork.workspace));
+                    focused.stack = this.forest.stacks.insert(new Stack(ext, focused.entity, fork.workspace, fork.monitor));
                     fork.right = node.Node.stacked(focused.entity, focused.stack);
                     fork.measure(this.forest, ext, fork.area, this.forest.on_record());
                 } else if (fork.right?.is_in_stack(focused.entity)) {

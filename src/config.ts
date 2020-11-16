@@ -1,6 +1,6 @@
 const { Gio, GLib } = imports.gi;
 
-const CONF_DIR: string = GLib.get_home_dir() + "/.config/pop-shell"
+const CONF_DIR: string = GLib.get_user_config_dir() + "/pop-shell"
 export var CONF_FILE: string = CONF_DIR + "/config.json"
 
 export interface FloatRule {
@@ -27,20 +27,33 @@ export const DEFAULT_RULES: Array<FloatRule> = [
     { class: "Zotero", title: "Quick Format Citation" },
     { class: "Com.github.donadigo.eddy", },
     { class: "Conky", },
-    { class: "Gnome-screenshot", },
+    { class: "gnome-screenshot", },
     { class: "jetbrains-toolbox", },
+    { class: "jetbrains-webstorm", title: "License Activation" },
+    { class: "jetbrains-webstorm", title: "Customize WebStorm" },
+    { class: "jetbrains-webstorm", title: "Welcome to WebStorm" },
     { class: "KotatogramDesktop", title: "Media viewer" },
     { class: "Steam", title: "^((?!Steam).)*$" },
     { class: "TelegramDesktop", title: "Media viewer" },
     { class: "Slack", title: "Slack | mini panel" },
     { class: "Solaar", },
+    { class: "system76-driver", },
     { class: "zoom", },
-    { class: "Signal" }
+    { class: "Signal" },
+    { class: "Gjs", title: "Settings" },
 ];
 
 export interface FloatRule {
     class?: string;
     title?: string;
+};
+
+export enum DefaultPointerPosition {
+    TopLeft = "TOP_LEFT",
+    TopRight = "TOP_RIGHT",
+    BottomLeft = "BOTTOM_LEFT",
+    BottomRight = "BOTTOM_RIGHT",
+    Center = "CENTER",
 };
 
 export class Config {
@@ -49,6 +62,12 @@ export class Config {
 
     /** Logs window details on focus of window */
     log_on_focus: boolean = false;
+
+    /** Move pointer when you switch applications */
+    move_pointer_on_switch: boolean = false;
+
+    /** Specify default pointer position when you're switching windows */
+    default_pointer_position: DefaultPointerPosition = DefaultPointerPosition.TopLeft;
 
     /** Add a floating exception which matches by wm_class */
     add_app_exception(wmclass: string) {
@@ -73,13 +92,13 @@ export class Config {
     window_shall_float(wclass: string, title: string): boolean {
         for (const rule of this.float.concat(DEFAULT_RULES)) {
             if (rule.class) {
-                if (!new RegExp(rule.class).test(wclass)) {
+                if (!new RegExp(rule.class, 'i').test(wclass)) {
                     continue
                 }
             }
 
             if (rule.title) {
-                if (!new RegExp(rule.title).test(title)) {
+                if (!new RegExp(rule.title, 'i').test(title)) {
                     continue
                 }
             }
@@ -97,6 +116,8 @@ export class Config {
             let c = conf.value;
             this.float = c.float;
             this.log_on_focus = c.log_on_focus;
+            this.default_pointer_position = c.default_pointer_position;
+            this.move_pointer_on_switch = c.move_pointer_on_switch;
         } else {
             log(`error loading conf: ${conf.why}`)
         }

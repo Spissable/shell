@@ -1,8 +1,13 @@
 # Retrieve the UUID from ``metadata.json``
 UUID = $(shell grep -E '^[ ]*"uuid":' ./metadata.json | sed 's@^[ ]*"uuid":[ ]*"\(.\+\)",[ ]*@\1@')
+VERSION = $(shell grep version tsconfig.json | awk -F\" '{print $$4}')
+
+ifeq ($(XDG_DATA_HOME),)
+XDG_DATA_HOME = $(HOME)/.local/share
+endif
 
 ifeq ($(strip $(DESTDIR)),)
-INSTALLBASE = $(HOME)/.local/share/gnome-shell/extensions
+INSTALLBASE = $(XDG_DATA_HOME)/gnome-shell/extensions
 else
 INSTALLBASE = $(DESTDIR)/usr/share/gnome-shell/extensions
 endif
@@ -29,6 +34,9 @@ transpile: $(sources) clean
 configure:
 	sh scripts/configure.sh
 
+convert: transpile
+	sh scripts/transpile.sh
+
 compile: convert metadata.json schemas
 	rm -rf _build
 	mkdir -p _build
@@ -37,9 +45,6 @@ compile: convert metadata.json schemas
 		mkdir -p _build/$${proj}; \
 		cp -r target/$${proj}/*.js _build/$${proj}; \
 	done
-
-convert: transpile
-	sh scripts/transpile.sh
 
 # Rebuild, install, reconfigure local settings, restart shell, and listen to journalctl logs
 debug: depcheck compile install configure enable restart-shell listen
@@ -91,4 +96,5 @@ schemas/gschemas.compiled: schemas/*.gschema.xml
 	glib-compile-schemas schemas
 
 zip-file: all
-	cd _build && zip -qr "../$(UUID)$(VSTRING).zip" .
+	cd _build && zip -qr "../$(UUID)_$(VERSION).zip" .
+

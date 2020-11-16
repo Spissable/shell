@@ -74,6 +74,10 @@ If you want to uninstall the extension, you may invoke `make uninstall`, and the
 
 > Note that if you are packaging for your Linux distribution, many features in Pop Shell will not work out of the box because they require changes to GNOME's default keyboard shortcuts. A local install is necessary if you aren't packaging your own GNOME session with these default keyboard shortcuts unset or changed.
 
+### Packaging status
+
+- [Fedora](https://src.fedoraproject.org/rpms/gnome-shell-extension-pop-shell/): `sudo dnf install gnome-shell-extension-pop-shell`
+
 ---
 
 ## Shared Features
@@ -190,7 +194,7 @@ This provides the tiling window manager experience, where windows are automatica
 - Ultra-wide displays are treated as two separate displays by default (**Unimplemented**)
 
 ### Customizing the Floating Window List
-There is file `$HOME/.config/pop-shell/config.json` where you can add the following structure:
+There is file `$XDG_CONFIG_HOME/pop-shell/config.json` where you can add the following structure:
 ```
 {
   class: "<WM_CLASS String from xprop>",
