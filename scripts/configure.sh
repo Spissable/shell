@@ -44,10 +44,16 @@ set_keybindings() {
     dconf write ${KEYS_GNOME_SHELL}/open-application-menu "@as []"
     # Toggle message tray: disable <Super>m
     dconf write ${KEYS_GNOME_SHELL}/toggle-message-tray "@as ['<Super>v']"
+    # Show the activities overview: disable <Super>s
+    dconf write ${KEYS_GNOME_SHELL}/toggle-overview "@as []"
     # Switch to workspace left: disable <Super>Left
     dconf write ${KEYS_GNOME_WM}/switch-to-workspace-left "@as []"
     # Switch to workspace right: disable <Super>Right
     dconf write ${KEYS_GNOME_WM}/switch-to-workspace-right "@as []"
+    # Maximize window: disable <Super>Up
+    dconf write ${KEYS_GNOME_WM}/maximize "@as []"
+    # Restore window: disable <Super>Down
+    dconf write ${KEYS_GNOME_WM}/unmaximize "@as []"
     # Move to monitor up: disable <Super><Shift>Up
     dconf write ${KEYS_GNOME_WM}/move-to-monitor-up "@as []"
     # Move to monitor down: disable <Super><Shift>Down
@@ -83,6 +89,8 @@ set_keybindings() {
     # dconf write ${KEYS_MEDIA}/email "['<Super>e']"
     # Launch web browser
     dconf write ${KEYS_MEDIA}/www "['<Super>b']"
+    # Launch terminal
+    dconf write ${KEYS_MEDIA}/terminal "['<Super>t']"
     # Rotate Video Lock
     dconf write ${KEYS_MEDIA}/rotate-video-lock-static "@as []"
 

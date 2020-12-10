@@ -20,6 +20,7 @@ import type { AppInfo } from 'app_info';
 const { OK } = result;
 
 const HOME_DIR: string = GLib.get_home_dir();
+const DATA_DIRS: string = GLib.get_system_data_dirs();
 
 /// Search paths for finding applications
 const SEARCH_PATHS: Array<[string, string]> = [
@@ -111,10 +112,15 @@ export class Launcher extends search.Search {
 
             // Sort the list of matched selections
             this.selections.sort((a, b) => {
-                const a_name = a instanceof window.ShellWindow ? a.name(ext) : a[1].name();
-                const b_name = b instanceof window.ShellWindow ? b.name(ext) : b[1].name();
+                const a_name = a instanceof window.ShellWindow ? a.name(ext).toLowerCase() : a[1].name().toLowerCase();
+                const b_name = b instanceof window.ShellWindow ? b.name(ext).toLowerCase() : b[1].name().toLowerCase();
 
-                return a_name.toLowerCase() > b_name.toLowerCase() ? 1 : 0;
+                const pattern_lower = pattern.toLowerCase()
+
+                const a_includes = a_name.includes(pattern_lower);
+                const b_includes = b_name.includes(pattern_lower);
+
+                return ((a_includes && b_includes) || (!a_includes && !b_includes)) ? (a_name > b_name ? 1 : 0) : a_includes ? -1 : b_includes ? 1 : 0;
             });
 
             // Truncate excess items from the list
@@ -218,6 +224,21 @@ export class Launcher extends search.Search {
                     if (result.kind == OK) {
                         const value = result.value;
                         this.desktop_apps.push([where, value]);
+                    } else {
+                        const why = result.value;
+                        log.warn(why.context(`failed to load desktop app`).format());
+                    }
+                }
+            }
+            for (const _path of DATA_DIRS) {
+                const path = _path.replace(/\/$/, '') + "/applications";
+                for (const result of app_info.load_desktop_entries(path)) {
+                    if (result.kind == OK) {
+                        const value = result.value;
+                        const existAt = this.desktop_apps.findIndex(([ _, app ]) => app.exec() == value.exec());
+                        if (existAt == -1) {
+                            this.desktop_apps.push(['System', value]);
+                        }
                     } else {
                         const why = result.value;
                         log.warn(why.context(`failed to load desktop app`).format());

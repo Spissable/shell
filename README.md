@@ -6,7 +6,7 @@ Tiling window management in GNOME is virtually nonexistent, which makes the desk
 
 Therefore, we see an opportunity here to advance the usability of the GNOME desktop to better accomodate the needs of our community with Pop Shell. Advanced tiling window management is a must for the desktop, so we've merged i3-like tiling window management with the GNOME desktop for the best of both worlds.
 
-[![](./screenshot.webp)](https://raw.githubusercontent.com/pop-os/shell/master_focal/screenshot.webp)
+[![](./screenshot.webp)](https://raw.githubusercontent.com/pop-os/shell/master/screenshot.webp)
 
 ---
 
@@ -102,6 +102,7 @@ These are key to many of the shortcuts utilized by tiling window managers. This 
 - `Super` + `f`: Files
 - `Super` + `e`: Email
 - `Super` + `b`: Web Browser
+- `Super` + `t`: Terminal
 
 ### Window Management Mode
 
