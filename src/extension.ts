@@ -46,6 +46,7 @@ const Tags = Me.imports.tags;
 
 const STYLESHEET_PATHS = ['light', 'dark'].map(stylesheet_path);
 const STYLESHEETS = STYLESHEET_PATHS.map((path) => Gio.File.new_for_path(path));
+const GNOME_VERSION = utils.gnome_version()
 
 enum Style { Light, Dark }
 
@@ -516,9 +517,20 @@ export class Ext extends Ecs.System<ExtEvent> {
     }
 
     exception_select() {
-        log.debug('select a window plz')
-        overview.show()
-        this.exception_selecting = true;
+        if (GNOME_VERSION?.startsWith("3.36")) {
+            // 3.36 required a delay to work
+            GLib.timeout_add(GLib.PRIORITY_LOW, 500, () => {
+                this.exception_selecting = true
+                overview.show()
+                return false
+            })
+        } else {
+            GLib.idle_add(GLib.PRIORITY_LOW, () => {
+                this.exception_selecting = true
+                overview.show()
+                return false
+            })
+        }
     }
 
     exit_modes() {
@@ -653,7 +665,7 @@ export class Ext extends Ecs.System<ExtEvent> {
         this.size_signals_unblock(win);
 
         if (this.exception_selecting) {
-            this.exception_add(win);
+            this.exception_add(win)
         }
 
         // Keep the last-focused window from being shifted too quickly. 300ms debounce
@@ -1664,6 +1676,10 @@ export class Ext extends Ecs.System<ExtEvent> {
         this.workspace_by_id(id)?.activate(global.get_current_time());
     }
 
+    stop_launcher_services() {
+        this.window_search.stop_services()
+    }
+
     tab_list(tablist: number, workspace: Meta.Workspace | null): Array<Window.ShellWindow> {
         const windows = display.get_tab_list(tablist, workspace);
 
@@ -2108,7 +2124,7 @@ function disable() {
 
         ext.signals_remove();
         ext.exit_modes();
-
+        ext.stop_launcher_services();
         ext.hide_all_borders();
 
         layoutManager.removeChrome(ext.overlay);

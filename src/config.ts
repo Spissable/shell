@@ -41,6 +41,7 @@ export const DEFAULT_RULES: Array<FloatRule> = [
     { class: "zoom", },
     { class: "Signal" },
     { class: "Gjs", title: "Settings" },
+    { class: "Io.elementary.sideload", },
 ];
 
 export interface FloatRule {
