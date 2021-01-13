@@ -7,10 +7,11 @@ import * as Lib from 'lib';
 import * as Log from 'log';
 import * as Node from 'node';
 import * as Rect from 'rectangle';
-import * as shell from 'shell';
 import * as Tags from 'tags';
 import * as Tweener from 'tweener';
 import * as window from 'window';
+import * as geom from 'geom';
+import * as exec from 'executor';
 
 import type { Entity } from './ecs';
 import type { Rectangle } from './rectangle';
@@ -35,11 +36,11 @@ export class Tiler {
 
     window: Entity | null = null;
 
-    movements: Array<() => void> = new Array();
-
     moving: boolean = false;
 
     private swap_window: Entity | null = null;
+
+    queue: exec.ChannelExecutor<() => void> = new exec.ChannelExecutor()
 
     constructor(ext: Ext) {
         this.keybindings = {
@@ -187,8 +188,8 @@ export class Tiler {
     move(ext: Ext, x: number, y: number, w: number, h: number, direction: Direction, focus: () => window.ShellWindow | number | null) {
         if (!this.window) return;
         if (ext.auto_tiler && !ext.contains_tag(this.window, Tags.Floating)) {
-            if (this.movements.length === 2) return;
-            this.movements.push(() => {
+            if (this.queue.length === 2) return;
+            this.queue.send(() => {
                 const focused = ext.focus_window();
                 if (focused) {
                     // The window that the focused window is being moved onto
@@ -437,7 +438,7 @@ export class Tiler {
 
                     focused.ignore_detach = true;
                     at.detach_window(ext, focused.entity);
-                    at.attach_to_window(ext, move_to, focused, Lib.cursor_rect(), stack_from_left);
+                    at.attach_to_window(ext, move_to, focused, { cursor: Lib.cursor_rect() }, stack_from_left);
                     watching = focused;
                 } else {
                     const parent = at.windows_are_siblings(focused.entity, move_to.entity);
@@ -465,9 +466,11 @@ export class Tiler {
                     }
 
                     if (!watching) {
+                        let movement = { src: focused.meta.get_frame_rect()}
+
                         focused.ignore_detach = true;
                         at.detach_window(ext, focused.entity);
-                        at.attach_to_window(ext, move_to, focused, Lib.cursor_rect(), false);
+                        at.attach_to_window(ext, move_to, focused, movement, false);
                         watching = focused;
                     }
                 }
@@ -662,7 +665,7 @@ export class Tiler {
     }
 
     exit(ext: Ext) {
-        this.movements.splice(0);
+        this.queue.clear()
 
         if (this.window) {
             this.window = null;
@@ -696,35 +699,50 @@ export class Tiler {
 };
 
 export function locate_monitor(win: window.ShellWindow, direction: Meta.DisplayDirection): number | null {
-    if (!win.actor_exists()) return null;
+    if (!win.actor_exists()) return null
 
-    const from = win.meta.get_monitor();
-    let next = shell.monitor_neighbor_index(from, direction);
+    const from = win.meta.get_monitor()
+    const ref = win.meta.get_work_area_for_monitor(from) as any
+    const n_monitors = global.display.get_n_monitors()
 
-    // There's a chance that GNOME Shell is simply wrong. Correct it.
-    if (next === null) {
-        const ref = win.meta.get_work_area_for_monitor(from) as any;
-        const n_monitors = global.display.get_n_monitors();
-        for (let mon = 0; mon < n_monitors; mon += 1) {
-            if (mon === from) continue;
-            const work_area = win.meta.get_work_area_for_monitor(mon);
-            if (!work_area) continue;
+    const { UP, DOWN, LEFT } = Meta.DisplayDirection
 
-            if (direction === Meta.DisplayDirection.UP) {
-                if (work_area.y < ref.y) {
-                    next = mon;
-                    break
-                }
-            } else if (direction === Meta.DisplayDirection.DOWN) {
-                if (work_area.y > ref.y) {
-                    next = mon;
-                    break
-                }
-            }
+    let origin: [number, number]
+    let exclude: (rect: Rectangular) => boolean
+
+    if (direction === UP) {
+        origin = [ref.x + ref.width / 2, ref.y]
+        exclude = (rect: Rectangular) => {
+            return rect.y > ref.y
+        }
+    } else if (direction === DOWN) {
+        origin = [ref.x + ref.width / 2, ref.y + ref.height]
+        exclude = (rect: Rectangular) => rect.y < ref.y
+    } else if (direction === LEFT) {
+        origin = [ref.x, ref.y + ref.height / 2]
+        exclude = (rect: Rectangular) => rect.x > ref.y
+    } else {
+        origin = [ref.x + ref.width, ref.y + ref.height / 2]
+        exclude = (rect: Rectangular) => rect.x < ref.x
+    }
+
+    let next: [number, number] | null = null
+    
+    for (let mon = 0; mon < n_monitors; mon += 1) {
+        if (mon === from) continue
+
+        const work_area = win.meta.get_work_area_for_monitor(mon)
+
+        if (!work_area || exclude(work_area)) continue
+
+        const weight = geom.shortest_side(origin, work_area)
+
+        if (next === null || next[1] > weight) {
+            next = [mon, weight]
         }
     }
 
-    return next
+    return next ? next[0] : null
 }
 
 function monitor_rect(monitor: Rectangle, columns: number, rows: number): Rectangle {

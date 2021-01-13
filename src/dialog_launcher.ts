@@ -9,7 +9,9 @@ import * as lib from 'lib';
 import * as log from 'log';
 import * as result from 'result';
 import * as search from 'dialog_search';
-import * as launch from 'launcher';
+import * as launch from 'launcher_service';
+import * as plugins from 'launcher_plugins';
+import * as levenshtein from 'levenshtein';
 
 import type { ShellWindow } from 'window';
 import type { Ext } from 'extension';
@@ -39,7 +41,7 @@ export class Launcher extends search.Search {
     options: Array<launch.SearchOption>
     desktop_apps: Array<[string, AppInfo]>
     service: launch.LauncherService
-    last_plugin: null | launch.Plugin.Source
+    last_plugin: null | plugins.Plugin.Source
     mode: number;
 
     constructor(ext: Ext) {
@@ -58,11 +60,13 @@ export class Launcher extends search.Search {
 
             this.last_plugin = null
 
-            this.service.query(pattern, (plugin, response) => {
-                if (!this.last_plugin) this.last_plugin = plugin;
+            let windows = new Array()
 
+            this.service.query(pattern, (plugin, response) => {
                 if (response.event === "queried") {
                     for (const selection of response.selections) {
+                        if (!this.last_plugin) this.last_plugin = plugin;
+
                         let icon = null
                         if (selection.icon) {
                             icon = { name: selection.icon }
@@ -89,15 +93,13 @@ export class Launcher extends search.Search {
                 return needles.every((n) => hay.includes(n));
             };
 
-            let apps: Array<launch.SearchOption> = new Array();
-
             // Filter matching windows
             for (const window of ext.tab_list(Meta.TabList.NORMAL, null)) {
                 const retain = contains_pattern(window.name(ext), needles)
                     || contains_pattern(window.meta.get_title(), needles);
 
                 if (retain) {
-                    apps.push(window_selection(ext, window, this.icon_size()))
+                    windows.push(window_selection(ext, window, this.icon_size()))
                 }
             }
 
@@ -112,7 +114,7 @@ export class Launcher extends search.Search {
                 if (retain) {
                     const generic = app.generic_name();
 
-                    apps.push(new launch.SearchOption(
+                    this.options.push(new launch.SearchOption(
                         app.name(),
                         generic ? generic + " — " + where : where,
                         'application-default-symbolic',
@@ -123,20 +125,31 @@ export class Launcher extends search.Search {
                 }
             }
 
-            // Sort the list of matched selections
-            apps.sort((a, b) => {
-                const a_name = a.title.toLowerCase();
-                const b_name = b.title.toLowerCase();
+            const sorter = (a: launch.SearchOption, b: launch.SearchOption) => {
+                const a_name = a.title.toLowerCase()
+                const b_name = b.title.toLowerCase()
 
                 const pattern_lower = pattern.toLowerCase()
 
-                const a_includes = a_name.includes(pattern_lower);
-                const b_includes = b_name.includes(pattern_lower);
+                let a_name_weight = levenshtein.compare(pattern_lower, a_name)
 
-                return ((a_includes && b_includes) || (!a_includes && !b_includes)) ? (a_name > b_name ? 1 : 0) : a_includes ? -1 : b_includes ? 1 : 0;
-            });
+                let b_name_weight = levenshtein.compare(pattern_lower, b_name)
 
-            for (const app of apps) this.options.push(app)
+                if (a.description) {
+                    a_name_weight = Math.min(a_name_weight, levenshtein.compare(pattern_lower, a.description.toLowerCase()))
+                }
+
+                if (b.description) {
+                    b_name_weight = Math.min(b_name_weight, levenshtein.compare(pattern_lower, b.description.toLowerCase()))
+                }
+
+                return a_name_weight > b_name_weight ? 1 : 0
+            }
+
+            // Sort the list of matched selections
+            windows.sort(sorter)
+            this.options.sort(sorter);
+            this.options = windows.concat(this.options)
 
             // Truncate excess items from the list
             this.options.splice(this.list_max());
@@ -195,9 +208,9 @@ export class Launcher extends search.Search {
                 }
             } else if ("plugin" in option) {
                 const { plugin, id } = option
-                launch.Plugin.submit(plugin, id)
+                plugins.Plugin.submit(plugin, id)
 
-                const response = launch.Plugin.listen(plugin)
+                const response = plugins.Plugin.listen(plugin)
                 if (response) {
                     if (response.event === "fill") {
                         this.set_text(response.text)
@@ -212,8 +225,8 @@ export class Launcher extends search.Search {
 
         let complete = () => {
             if (this.last_plugin) {
-                launch.Plugin.complete(this.last_plugin)
-                const res = launch.Plugin.listen(this.last_plugin)
+                plugins.Plugin.complete(this.last_plugin)
+                const res = plugins.Plugin.listen(this.last_plugin)
                 if (res && res.event === "fill") {
                     this.set_text(res.text)
                 }

@@ -22,6 +22,7 @@ import * as Executor from 'executor';
 import * as movement from 'movement';
 import * as stack from 'stack';
 import * as add_exception from 'dialog_add_exception';
+import * as exec from 'executor';
 
 import type { Entity } from 'ecs';
 import type { ExtEvent } from 'events';
@@ -101,7 +102,7 @@ export class Ext extends Ecs.System<ExtEvent> {
     row_size: number = 32;
 
     /** The known display configuration, for tracking monitor removals and changes */
-    displays: Map<number, Display> = new Map();
+    displays: [number, Map<number, Display>] = [global.display.get_primary_monitor(), new Map()];
 
     /** The current scaling factor in GNOME Shell */
     dpi: number = St.ThemeContext.get_for_stage(global.stage).scale_factor;
@@ -144,6 +145,8 @@ export class Ext extends Ecs.System<ExtEvent> {
     init: boolean = true;
 
     was_locked: boolean = false;
+
+    private workareas_update: null | SignalID = null
 
     /** Record of misc. global objects and their attached signals */
     private signals: Map<GObject.Object, Array<SignalID>> = new Map();
@@ -192,10 +195,6 @@ export class Ext extends Ecs.System<ExtEvent> {
 
     /** Calculates window placements when tiling and focus-switching */
     tiler: Tiling.Tiler = new Tiling.Tiler(this);
-
-    tiler_active: boolean = false;
-
-    tiler_queue: null | SignalID = null;
 
     constructor() {
         super(new Executor.GLibExecutor());
@@ -542,7 +541,7 @@ export class Ext extends Ecs.System<ExtEvent> {
 
     find_monitor_to_retach(width: number, height: number): [number, Display] {
         if (!this.settings.workspaces_only_on_primary()) {
-            for (const [index, display] of this.displays) {
+            for (const [index, display] of this.displays[1]) {
                 if (display.area.width == width && display.area.height == height) {
                     return [index, display];
                 }
@@ -550,7 +549,7 @@ export class Ext extends Ecs.System<ExtEvent> {
         }
 
         const primary = display.get_primary_monitor();
-        return [primary, this.displays.get(primary) as Display];
+        return [primary, this.displays[1].get(primary) as Display];
     }
 
     find_unused_workspace(monitor: number): [number, any] {
@@ -558,14 +557,32 @@ export class Ext extends Ecs.System<ExtEvent> {
 
         let id = 0
 
-        for (const fork of this.auto_tiler.forest.forks.values()) {
-            if (fork.monitor === monitor && id < fork.workspace) id = fork.workspace
+        const tiled_windows = new Array<Window.ShellWindow>()
+
+        for (const [window] of this.auto_tiler.attached.iter()) {
+            if (!this.auto_tiler.attached.contains(window)) continue
+
+            const win = this.windows.get(window)
+
+            if (win && !win.reassignment && win.meta.get_monitor() === monitor) tiled_windows.push(win)
         }
 
-        id += 1
+        cancel:
+        while (true) {
+            for (const window of tiled_windows) {
+                if (window.workspace_id() === id) {
+                    id += 1
+                    continue cancel
+                }
+            }
+
+            break
+        }
+
         let new_work
 
-        if (id === wom.get_n_workspaces()) {
+        if (id + 1 === wom.get_n_workspaces()) {
+            id += 1
             new_work = wom.append_new_workspace(true, global.get_current_time())
         } else {
             new_work = wom.get_workspace_by_index(id)
@@ -599,7 +616,7 @@ export class Ext extends Ecs.System<ExtEvent> {
     }
 
     monitor_work_area(monitor: number): Rectangle {
-        const meta = display.get_workspace_manager()
+        const meta = wom
             .get_active_workspace()
             .get_work_area_for_monitor(monitor);
 
@@ -1434,31 +1451,12 @@ export class Ext extends Ecs.System<ExtEvent> {
     signals_attach() {
         this.conf_watch = this.attach_config();
 
-        this.tiler_queue = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 100, () => {
-            if (this.tiler_active) return true;
+        this.tiler.queue.start(100, (movement) => {
+            movement()
+            return true
+        })
 
-            const m = this.tiler.movements.shift();
-
-            if (m) {
-                this.tiler_active = true;
-
-                const callback = () => {
-                    m();
-                    this.tiler_active = false;
-                };
-
-                if (!this.schedule_idle(() => {
-                    callback();
-                    return false;
-                })) {
-                    callback();
-                }
-            }
-
-            return true;
-        });
-
-        const workspace_manager = display.get_workspace_manager();
+        const workspace_manager = wom;
 
         for (const [, ws] of iter_workspaces(workspace_manager)) {
             let index = ws.index();
@@ -1641,9 +1639,7 @@ export class Ext extends Ecs.System<ExtEvent> {
             this.conf_watch = null;
         }
 
-        if (this.tiler_queue !== null) {
-            GLib.source_remove(this.tiler_queue)
-        }
+        this.tiler.queue.stop()
 
         this.signals.clear();
     }
@@ -1794,7 +1790,7 @@ export class Ext extends Ecs.System<ExtEvent> {
         }
     }
 
-    update_display_configuration(_workareas_only: boolean) {
+    update_display_configuration(workareas_only: boolean) {
         if (!this.auto_tiler || sessionMode.isLocked) return
 
         if (this.ignore_display_update) {
@@ -1805,7 +1801,49 @@ export class Ext extends Ecs.System<ExtEvent> {
         // Ignore the update if there are no monitors to assign to
         if (layoutManager.monitors.length === 0) return
 
-        if (this.displays_updating !== null) GLib.source_remove(this.displays_updating)
+        const primary_display = global.display.get_primary_monitor()
+
+        const primary_display_ready = (ext: Ext): boolean => {
+            const area = global.display.get_monitor_geometry(primary_display)
+            const work_area = ext.monitor_work_area(primary_display)
+            
+            if (!area || !work_area) return false
+
+            return !(area.width === work_area.width && area.height === work_area.height)
+        }
+
+        function displays_ready(): boolean {
+            const monitors = global.display.get_n_monitors()
+
+            if (monitors === 0) return false
+
+            for (let i = 0; i < monitors; i += 1) {
+                const display = global.display.get_monitor_geometry(i)
+                
+                if (!display) return false
+
+                if (display.width < 1 || display.height < 1) return false
+            }
+
+            return true
+        }
+
+        if (!displays_ready() || !primary_display_ready(this)) {
+            if (this.displays_updating !== null) return
+            if (this.workareas_update !== null) GLib.source_remove(this.workareas_update)
+
+            this.workareas_update = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
+                this.register_fn(() => {
+                    this.update_display_configuration(workareas_only)
+                })
+
+                this.workareas_update = null
+            
+                return false
+            })
+
+            return
+        }
 
         // Update every tree on each display with the new dimensions
         const update_tiling = () => {
@@ -1814,117 +1852,29 @@ export class Ext extends Ecs.System<ExtEvent> {
             for (const f of this.auto_tiler.forest.forks.values()) {
                 if (!f.is_toplevel) continue
 
-                const display = this.displays.get(f.monitor);
+                const display = this.monitor_work_area(f.monitor)
 
                 if (display) {
-                    f.set_area(display.ws)
+                    const area = new Rect.Rectangle([display.x, display.y, display.width, display.height])
+
+                    f.smart_gapped = false
+                    f.set_area(area.clone());
                     this.auto_tiler.update_toplevel(this, f, f.monitor, this.settings.smart_gaps());
                 }
             }
         }
 
-        let updated = new Map()
-        let changes = new Map()
+        type Migration = [Fork, number, Rectangle, boolean]
 
-        // Records which display's windows were moved to what new display's ID
-        for (const [entity, w] of this.windows.iter()) {
-            if (!w.actor_exists()) continue
+        let migrations: Array<Migration> = new Array()
 
-            this.monitors.with(entity, ([mon,]) => {
-                changes.set(mon, w.meta.get_monitor())
-            })
-        }
+        const apply_migrations = (assigned_monitors: Set<number>) => {
+            if (!migrations) return
 
-        // Fetch a new list of monitors
-        for (const monitor of layoutManager.monitors) {
-            const mon = monitor as Monitor
-
-            const area = new Rect.Rectangle([mon.x, mon.y, mon.width, mon.height])
-            const ws = this.monitor_work_area(mon.index)
-
-            updated.set(mon.index, { area, ws })
-        }
-
-        function compare_maps<K, V>(map1: Map<K, V>, map2: Map<K, V>) {
-            if (map1.size !== map2.size) {
-                return false
-            }
-
-            let cmp
-
-            for (let [key, val] of map1) {
-                cmp = map2.get(key)
-                if (cmp !== val || (cmp === undefined && !map2.has(key))) {
-                    return false
-                }
-            }
-
-            return true
-        }
-
-        // Delay actions until 3 seconds later, in case of temporary connection loss
-        this.displays_updating = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 2000, () => {
-            (() => {
-                if (!this.auto_tiler) return
-
-                if (compare_maps(this.displays, updated)) {
-                    return
-                }
-
-                this.displays = updated
-
-                const forest = this.auto_tiler.forest
-
-                let migrations: Array<[Fork, number, Rectangle, boolean]> = new Array()
-                let toplevels = new Array()
-                let assigned_monitors = new Set()
-
-                for (const [old_mon, new_mon] of changes) {
-                    if (old_mon === new_mon) {
-                        assigned_monitors.add(new_mon)
-                    }
-                }
-
-                for (const f of forest.forks.values()) {
-                    if (f.is_toplevel) {
-                        toplevels.push(f)
-
-                        let migration: null | [Fork, number, Rectangle, boolean] = null;
-
-                        for (const [old_monitor, new_monitor] of changes) {
-                            if (old_monitor === new_monitor) continue
-
-                            if (f.monitor === old_monitor) {
-                                const display = this.displays.get(new_monitor)
-
-                                if (display) {
-                                    f.monitor = new_monitor
-                                    f.workspace = 0
-                                    migration = [f, new_monitor, display.ws, true]
-                                }
-
-                                break
-                            }
-                        }
-
-                        if (!migration) {
-                            const display = this.displays.get(f.monitor)
-                            if (display) {
-                                migration = [f, f.monitor, display.ws, false]
-                            }
-                        }
-
-                        if (migration) migrations.push(migration)
-                    }
-                }
-
-                let iterator = migrations[Symbol.iterator]()
-
-                GLib.timeout_add(GLib.PRIORITY_LOW, 500, () => {
-                    let next: null | [Fork, number, Rectangle, boolean] = iterator.next().value;
-
-                    if (next) {
-                        const [fork, new_monitor, workspace, find_workspace] = next
+            new exec.OnceExecutor<Migration, Migration[]>(migrations)
+                .start(
+                    500,
+                    ([fork, new_monitor, workspace, find_workspace]) => {
                         let new_workspace
 
                         if (find_workspace) {
@@ -1939,13 +1889,120 @@ export class Ext extends Ecs.System<ExtEvent> {
                         }
 
                         fork.migrate(this, forest, workspace, new_monitor, new_workspace);
+                        fork.set_ratio(fork.length() / 2)
+
                         return true
+                    },
+                    () => update_tiling()
+            )
+        }
+
+        function mark_for_reassignment(ext: Ext, fork: Ecs.Entity) {
+            for (const win of forest.iter(fork, node.NodeKind.WINDOW)) {
+                if (win.inner.kind === 2) {
+                    const entity = win.inner.entity
+                    const window = ext.windows.get(entity)
+                    if (window) window.reassignment = true
+                }
+            }
+        }
+
+        const [ old_primary, old_displays ] = this.displays
+
+        const changes = new Map<number, number>()
+
+        // Records which display's windows were moved to what new display's ID
+        for (const [entity, w] of this.windows.iter()) {
+            if (!w.actor_exists()) continue
+
+            this.monitors.with(entity, ([mon,]) => {
+                const assignment = mon === old_primary ? primary_display : w.meta.get_monitor()
+                changes.set(mon, assignment)
+            })
+        }
+
+        // Fetch a new list of monitors
+        const updated = new Map()
+
+        for (const monitor of layoutManager.monitors) {
+            const mon = monitor as Monitor
+
+            const area = new Rect.Rectangle([mon.x, mon.y, mon.width, mon.height])
+            const ws = this.monitor_work_area(mon.index)
+
+            updated.set(mon.index, { area, ws })
+        }
+
+        const forest = this.auto_tiler.forest
+
+        if (old_displays.size === updated.size) {
+            update_tiling()
+
+            this.displays = [primary_display, updated]
+            
+            return
+        }
+
+        this.displays = [primary_display, updated]
+
+        if (utils.map_eq(old_displays, updated)) {
+            return
+        }
+
+        if (this.displays_updating !== null) GLib.source_remove(this.displays_updating)
+
+        if (this.workareas_update !== null) {
+            GLib.source_remove(this.workareas_update)
+            this.workareas_update = null
+        }
+
+        // Delay actions in case of temporary connection loss
+        this.displays_updating = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 2000, () => {
+            (() => {
+                if (!this.auto_tiler) return
+
+                const toplevels = new Array()
+                const assigned_monitors = new Set<number>()
+
+                for (const [old_mon, new_mon] of changes) {
+                    if (old_mon === new_mon) assigned_monitors.add(new_mon)
+                }
+
+                for (const f of forest.forks.values()) {
+                    if (f.is_toplevel) {
+                        toplevels.push(f)
+
+                        let migration: null | [Fork, number, Rectangle, boolean] = null;
+
+                        const displays = this.displays[1]
+
+                        for (const [old_monitor, new_monitor] of changes) {
+                            const display = displays.get(new_monitor)
+
+                            if (!display) continue
+
+                            if (f.monitor === old_monitor) {
+                                f.monitor = new_monitor
+                                f.workspace = 0
+                                migration = [f, new_monitor, display.ws, true]
+                            }
+                        }
+
+                        if (!migration) {
+                            const display = displays.get(f.monitor)
+                            if (display) {
+                                migration = [f, f.monitor, display.ws, false]
+                            }
+                        }
+
+                        if (migration) {
+                            mark_for_reassignment(this, migration[0].entity)
+                            migrations.push(migration)
+                        }
                     }
+                }
 
-                    update_tiling()
-
-                    return false
-                })
+                apply_migrations(assigned_monitors)
 
                 return
             })()
@@ -2053,7 +2110,7 @@ export class Ext extends Ecs.System<ExtEvent> {
 
     /** Fetch a workspace by its index */
     workspace_by_id(id: number): Meta.Workspace | null {
-        return display.get_workspace_manager().get_workspace_by_index(id);
+        return wom.get_workspace_by_index(id);
     }
 
     workspace_id(window: Window.ShellWindow | null = null): [number, number] {

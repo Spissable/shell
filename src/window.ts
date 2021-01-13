@@ -57,6 +57,9 @@ export class ShellWindow {
     ignore_detach: boolean = false;
     was_attached_to?: [Entity, boolean | number];
 
+    // Awaiting reassignment after a display update
+    reassignment: boolean = false
+
     // True if this window is currently smart-gapped
     smart_gapped: boolean = false;
 
@@ -274,7 +277,7 @@ export class ShellWindow {
         return xid ? xprop.may_decorate(xid) : false;
     }
 
-    move(ext: Ext, rect: Rectangular, on_complete?: () => void) {
+    move(ext: Ext, rect: Rectangular, on_complete?: () => void, animate: boolean = true) {
         if ((!this.same_workspace() && this.is_maximized())) {
             return
         }
@@ -302,7 +305,7 @@ export class ShellWindow {
                 }
             };
 
-            if (ext.animate_windows && !ext.init) {
+            if (animate && ext.animate_windows && !ext.init) {
                 const current = meta.get_frame_rect();
                 const buffer = meta.get_buffer_rect();
 
@@ -535,16 +538,9 @@ export class ShellWindow {
     private window_raised() {
         this.restack(RESTACK_STATE.RAISED);
         this.show_border();
-        if (this.ext.conf.move_pointer_on_switch && !this.pointer_already_on_window()) {
+        if (this.ext.conf.move_pointer_on_switch && !pointer_already_on_window(this.meta)) {
             place_pointer_on(this.ext.conf.default_pointer_position, this.meta);
         }
-    }
-
-    private pointer_already_on_window(): boolean {
-        const rect = Rect.Rectangle.from_meta(this.meta.get_frame_rect());
-        const cursor = lib.cursor_rect();
-
-        return cursor.intersects(rect);
     }
 
     private workspace_changed() {
@@ -557,7 +553,10 @@ export function activate(default_pointer_position: Config.DefaultPointerPosition
     win.raise();
     win.unminimize();
     win.activate(global.get_current_time());
-    place_pointer_on(default_pointer_position, win)
+
+    if (!pointer_already_on_window(win)) {
+        place_pointer_on(default_pointer_position, win)
+    }
 }
 
 export function place_pointer_on(default_pointer_position: Config.DefaultPointerPosition, win: Meta.Window) {
@@ -597,4 +596,11 @@ export function place_pointer_on(default_pointer_position: Config.DefaultPointer
         .get_default_seat()
         .get_pointer()
         .warp(display.get_default_screen(), x, y);
+}
+
+function pointer_already_on_window(meta: Meta.Window): boolean {
+    const rect = Rect.Rectangle.from_meta(meta.get_frame_rect());
+    const cursor = lib.cursor_rect();
+
+    return cursor.intersects(rect);
 }
