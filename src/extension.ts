@@ -139,8 +139,6 @@ export class Ext extends Ecs.System<ExtEvent> {
 
     tween_signals: Map<string, [SignalID, any]> = new Map();
 
-    tiling_toggle_switch: any = null;  /** reference to the PopupSwitchMenuItem menu item, so state can be toggled */
-
     /** Initially set to true when the extension is initializing */
     init: boolean = true;
 
@@ -353,10 +351,6 @@ export class Ext extends Ecs.System<ExtEvent> {
 
                     case GlobalEvent.OverviewShown:
                         this.on_overview_shown();
-                        break;
-
-                    case GlobalEvent.OverviewHidden:
-                        this.on_overview_hidden();
                         break;
                 }
 
@@ -1251,20 +1245,22 @@ export class Ext extends Ecs.System<ExtEvent> {
         }
     }
 
-    on_overview_hidden() {
-
-    }
-
     on_overview_shown() {
         this.exit_modes();
         this.unset_grab_op();
     }
 
     on_show_window_titles() {
+        const show_title = this.settings.show_title()
+
+        if (indicator) {
+            indicator.toggle_titles.setToggleState(show_title)
+        }
+
         for (const window of this.windows.values()) {
             if (window.meta.is_client_decorated()) continue;
 
-            if (this.settings.show_title()) {
+            if (show_title) {
                 window.decoration_show(this);
             } else {
                 window.decoration_hide(this);
@@ -1490,8 +1486,10 @@ export class Ext extends Ecs.System<ExtEvent> {
         this.connect(this.settings.ext, 'changed', (_s, key: string) => {
             switch (key) {
                 case 'active-hint':
+                    if (indicator)
+                        indicator.toggle_active.setToggleState(this.settings.active_hint())
+                        
                     this.show_border_on_focused();
-                    break;
                 case 'gap-inner':
                     this.on_gap_inner();
                     break
@@ -1566,6 +1564,7 @@ export class Ext extends Ecs.System<ExtEvent> {
 
         this.connect(display, 'grab-op-end', (_, _display, win, op) => {
             this.register_fn(() => this.on_grab_end(win, op));
+            
         });
 
         this.connect(overview, 'window-drag-begin', (_, win) => {
@@ -1673,7 +1672,7 @@ export class Ext extends Ecs.System<ExtEvent> {
     }
 
     stop_launcher_services() {
-        this.window_search.stop_services()
+        this.window_search.stop_services(this)
     }
 
     tab_list(tablist: number, workspace: Meta.Workspace | null): Array<Window.ShellWindow> {
@@ -1719,7 +1718,9 @@ export class Ext extends Ecs.System<ExtEvent> {
             this.auto_tiler.destroy(this);
             this.auto_tiler = null;
             this.settings.set_tile_by_default(false);
-            this.tiling_toggle_switch.setToggleState(false);
+
+            if (indicator) indicator.toggle_tiled.setToggleState(false)
+
             this.button.icon.gicon = this.button_gio_icon_auto_off; // type: Gio.Icon
 
             if (this.settings.active_hint()) {
@@ -1749,7 +1750,6 @@ export class Ext extends Ecs.System<ExtEvent> {
         this.auto_tiler = tiler;
 
         this.settings.set_tile_by_default(true);
-        this.tiling_toggle_switch.setToggleState(true);
         this.button.icon.gicon = this.button_gio_icon_auto_on; // type: Gio.Icon
 
         for (const window of this.windows.values()) {
