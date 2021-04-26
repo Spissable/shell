@@ -39,7 +39,6 @@ export const DEFAULT_RULES: Array<FloatRule> = [
     { class: "Solaar", },
     { class: "system76-driver", },
     { class: "zoom", },
-    { class: "Signal" },
     { class: "Gjs", title: "Settings" },
     { class: "Io.elementary.sideload", },
 ];
